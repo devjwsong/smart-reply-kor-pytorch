@@ -47,7 +47,7 @@ The overall architecture of Korean Smart Reply is as follows.
 
 <br/>
 
-<hr style="background: transparent; border: 0.5px dashed;"/>
+---
 
 ### How to run
 
@@ -77,6 +77,8 @@ The overall architecture of Korean Smart Reply is as follows.
    ```
 
    - `--input`: This is the input message you want to send to the Smart Reply system. This will be considered as the actual input message from the sender and Smart Reply will give you corresponding answers.
+   
+   <br/>
 
-<br/>
+---
 
