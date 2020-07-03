@@ -59,15 +59,24 @@ The overall architecture of Korean Smart Reply is as follows.
 
    <br/>
 
-2. Run below codes to train & test a model.
+2. For intent classification, first you need to train the intent classifier.
 
    ```shell
-   python src/main.py --model_type=MODEL_TYPE --mode=MODE --bert_embedding_frozen=TRUE_OR_FALSE
+   python src/main.py --mode='train_model' --bert_embedding_frozen=TRUE_OR_FALSE
    ```
 
-   - `--model_type`: You should select one model type among three, `bert_capsnet`, `basic_capsnet`, `w2v_capsnet`.
-   - `--mode`: You should choose one of two tasks, `seen_class` or `zero_shot`.
-   - `--bert_embedding_frozen`: This matters when you use `bert_capsnet`, which specify whether the embedding layer of DistilKoBERT should be frozen or not. This parameter is `True` or `False` and if you omit this, it is fixed in `False`.
+   - `--mode`: You should choose one of two tasks, `train_model` or `test_smart_reply`. The former is to train the intent classifier with given train data before using Smart Reply. The latter is for the actual usage of Smart Reply with the trained intent classifier.
+   - `bert_embedding_frozen`: This specifies whether the embedding layer of DistilKoBERT should be frozen or not. This parameter is `True` or `False` and if you omit this, it is fixed to `False`.
+
+   <br/>
+
+3. Finally, run below command to test Smart Reply system.
+
+   ```shell
+   python src/main.py --mode='test_smart_reply' --input=INPUT_MESSAGE
+   ```
+
+   - `--input`: This is the input message you want to send to the Smart Reply system. This will be considered as the actual input message from the sender and Smart Reply will give you corresponding answers.
 
 <br/>
 
