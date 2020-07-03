@@ -1,35 +1,49 @@
-# intent-capsnet-kor-pytorch
-This repository is Pytorch implementation of **"Zero-shot User Intent Detection via Capsule Neural Networks"**, especially for Korean.
+# smart-reply-kor-pytorch
+**Smart Reply** is an automated response recommendation system usually used in messenger, mail platforms, etc.
 
+It recommends several candidate responses based on the sender's input for the receiver to answer the message more conveniently with one touch/click.
 
+<br/>
 
-Details of this model is available in the original paper, [*Xia, C., Zhang, C., Yan, X., Chang, Y., & Yu, P. S. (2018). Zero-shot user intent detection via capsule neural networks. arXiv preprint arXiv:1809.00385*](https://arxiv.org/abs/1809.00385).
+This is the Korean Smart Reply system via Intent Classification with Intent Capsule Network from [*Xia, C., Zhang, C., Yan, X., Chang, Y., & Yu, P. S. (2018). Zero-shot user intent detection via capsule neural networks. arXiv preprint arXiv:1809.00385*](https://arxiv.org/abs/1809.00385).
 
-And this Pytorch implementation is revised and upgraded version of the original repository, [*Zero-shot User Intent Detection via Capsule Neural Networks (PyTorch Implementation)*](https://github.com/nhhoang96/ZeroShotCapsule-PyTorch-).
+The IntentCapsNet used is the implementation of the original repository [intent-capsnet-kor-pytorch](https://github.com/devJWSong/intent-capsnet-kor-pytorch) with DistilKoBERT encoder.
 
 <br/>
 
 ---
 
-### Differences
+### Details
 
-1. Unlike the existing version, you can use DistilKoBERT as the encoder. 
+This Smart Reply system is based on multinomial classification, consisting of 3 main parts.
 
-   Also besides w2v, `nn.Embedding` layer can be added to be trained in the beginning as an option.
+1. Intent Classification
 
-   Tokenizers and embedding methods can be different by the model type you choose.
+   The IntentCapsNet detects the sender's intent by processing the input message.
 
-   |               | **bert_capsnet**       | **basic_capsnet**    | **w2v_capsnet** |
-   | ------------- | ---------------------- | -------------------- | --------------- |
-   | **Encoder**   | DistilKoBERT           | BiLSTM               | BiLSTM          |
-   | **Tokenizer** | KoBERT Tokenizer       | KoBERT Tokenizer     | WhiteSpace      |
-   | **Embedding** | DistilKoBERT Embedding | Pytorch nn.Embedding | Korean Word2Vec |
+   The sender's intent is called "question" intent for convenience.
 
-   <br/>
+2. Intent Mapping
 
-2. In addition to zero shot intent detection task, you can train & test the model in original seen intent classification task.
+   This defines the relation between each question intent and according "response" intent sets.
 
-   All you need to do is just to specify the mode option.
+   In other words, there are fixed links between question intent and its corresponding response intents.
+
+   You can see the details from `data/intent_map.json`.
+
+3. Intent Group
+
+   This file has candidate responses grouped by each question intent group.
+
+   The system samples several responses from each group for recommendation.
+
+   You can also check and add/modify the answers in `data/intent_text.json`.
+
+<br/>
+
+The overall architecture of Korean Smart Reply is as follows.
+
+<img src="https://user-images.githubusercontent.com/16731987/86425622-a00c8680-bd20-11ea-8b31-2caf31ae15db.png" alt="The overall architecture of Korean Smart Reply system.">
 
 <br/>
 

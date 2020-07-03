@@ -54,8 +54,10 @@ def setting_for_training(ckpt_dir, bert_embedding_frozen):
     else:
         config_memo['device'] = 'cpu'
 
-    if not os.path.isdir(ckpt_dir):
-        os.mkdir(ckpt_dir)
+    # If the saving directory does not exist, make one.
+    if not os.path.exists(config['ckpt_dir']):
+        print("Making check point directory...")
+        os.mkdir(config['ckpt_dir'])
     with open(f'{ckpt_dir}/config.json', 'w') as f:
         json.dump(config, f)
 
@@ -113,11 +115,6 @@ def train(config, train_loader, test_loader):
     # Initialize the model and optimizer.
     model = capsule_nn.CapsuleNetwork(config, is_train=True).to(config['device'])
     optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])
-
-    # If the saving directory does not exist, make one.
-    if not os.path.exists(config['ckpt_dir']):
-        print("Making check point directory...")
-        os.mkdir(config['ckpt_dir'])
 
     # Training starts.
     print("Training starts.")
