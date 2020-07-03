@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Model path
+saved_model
+
+# Pycharm setting
+.idea

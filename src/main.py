@@ -1,7 +1,6 @@
 from sklearn.metrics import accuracy_score, f1_score
 from torch.utils.data import DataLoader, RandomSampler
 from tqdm import tqdm
-from torch import nn
 
 import torch.optim as optim
 import torch
@@ -10,7 +9,7 @@ import time
 import argparse
 import json
 import random
-import data_process, capsule_nn, kobert_for_ic
+import data_process, capsule_nn
 
 
 def setting_for_training(ckpt_dir, bert_embedding_frozen):
@@ -28,7 +27,7 @@ def setting_for_training(ckpt_dir, bert_embedding_frozen):
               'hidden_size': data['word_emb_size'],
               'batch_size': 16,
               'vocab_size': data['vocab_size'],
-              'epoch_num': 200,
+              'epoch_num': 20,
               'seq_len': data['max_len'],
               'pad_id': data['pad_id'],
               'train_class_num': train_class_num,
@@ -54,6 +53,9 @@ def setting_for_training(ckpt_dir, bert_embedding_frozen):
         config_memo['device'] = 'cuda'
     else:
         config_memo['device'] = 'cpu'
+
+    if not os.path.isdir(ckpt_dir):
+        os.mkdir(ckpt_dir)
     with open(f'{ckpt_dir}/config.json', 'w') as f:
         json.dump(config, f)
 
@@ -212,7 +214,7 @@ def test_smart_reply(config, x):
     intent = torch.argmax(output_logits, 1).item()
 
     # Get response list.
-    print("Getting candidate smart replies")
+    print("Getting candidate smart replies...")
     response_list = get_candidates(intent, num_candidates=3)
 
     print(response_list)
