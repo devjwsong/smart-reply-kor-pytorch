@@ -5,9 +5,9 @@ It recommends several candidate responses based on the sender's input for the re
 
 <br/>
 
-This is the Korean Smart Reply system via Intent Classification with Intent Capsule Network from [*Xia, C., Zhang, C., Yan, X., Chang, Y., & Yu, P. S. (2018). Zero-shot user intent detection via capsule neural networks. arXiv preprint arXiv:1809.00385*](https://arxiv.org/abs/1809.00385).
+This is the Korean Smart Reply system via Intent Classification with Intent Capsule Network from *Zero-shot user intent detection via capsule neural networks*[[1]](#1).
 
-The IntentCapsNet used is the implementation of the original repository [intent-capsnet-kor-pytorch](https://github.com/devJWSong/intent-capsnet-kor-pytorch) with DistilKoBERT encoder.
+The IntentCapsNet used is the implementation of the original repository *intent-capsnet-kor-pytorch*[[2]](#2) with DistilKoBERT encoder.
 
 <br/>
 
@@ -79,6 +79,16 @@ The overall architecture of Korean Smart Reply is as follows.
    - `--input`: This is the input message you want to send to the Smart Reply system. This will be considered as the actual input message from the sender and Smart Reply will give you corresponding answers.
    
    <br/>
+
+---
+
+### References
+
+<a id="1">[1]</a> 
+*Xia, C., Zhang, C., Yan, X., Chang, Y., & Yu, P. S. (2018). Zero-shot user intent detection via capsule neural networks. arXiv preprint arXiv:1809.00385*. ([https://arxiv.org/abs/1809.00385](https://arxiv.org/abs/1809.00385))
+
+<a id="2">[2]</a> 
+*intent-capsnet-kor-pytorch*. ([https://github.com/devJWSong/intent-capsnet-kor-pytorch](https://github.com/devJWSong/intent-capsnet-kor-pytorch))
 
 ---
 
