@@ -90,5 +90,7 @@ The overall architecture of Korean Smart Reply is as follows.
 <a id="2">[2]</a> 
 *intent-capsnet-kor-pytorch*. ([https://github.com/devJWSong/intent-capsnet-kor-pytorch](https://github.com/devJWSong/intent-capsnet-kor-pytorch))
 
+<br/>
+
 ---
 
