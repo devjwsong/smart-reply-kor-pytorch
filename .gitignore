@@ -133,3 +133,7 @@ saved_model
 
 # Pycharm setting
 .idea
+
+# Jupyter notebook
+nohup.out
+*.ipynb
