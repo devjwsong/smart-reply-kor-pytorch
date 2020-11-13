@@ -22,23 +22,25 @@ class CapsuleNetwork(nn.Module):
 
         # The embedding layer and encoder can be different according to the model type.
         self.encoder = get_distilkobert_model()
+        bert_config = self.encoder.config
+        hidden_size = bert_config.dim
 
         # BERT's embedding layer might be frozen in some cases.
         if self.config['bert_embedding_frozen']:
             for p in self.encoder.embeddings.parameters():
                 p.requires_grad = False
 
-        self.drop = nn.Dropout(config['keep_prob'])
+        self.drop = nn.Dropout(config['dropout'])
 
         # Parameters for self attention.
-        self.ws1 = nn.Linear(self.config['hidden_size'], self.config['d_a'], bias=False)
+        self.ws1 = nn.Linear(hidden_size, self.config['d_a'], bias=False)
         self.ws2 = nn.Linear(self.config['d_a'], self.config['r'], bias=False)
         self.tanh = nn.Tanh()
         self.softmax = nn.Softmax()
 
         # Parameters for linear transformation before DetectCaps.
-        self.capsule_weights = nn.Parameter(torch.zeros((self.config['r'], self.config['hidden_size'],
-                                                         self.config['train_class_num'] * self.config['caps_prop'])))
+        self.capsule_weights = nn.Parameter(torch.zeros((self.config['r'], hidden_size,
+                                                         self.config['num_classes'] * self.config['caps_prop'])))
 
         # Initialize parameters.
         self.init_weights()
@@ -73,12 +75,12 @@ class CapsuleNetwork(nn.Module):
         # DetectionCaps
         semantic_vecs = self.drop(semantic_vecs)
 
-        semantic_vecs_tiled = torch.unsqueeze(semantic_vecs, -1).repeat(1, 1, 1, self.config['train_class_num'] * self.config['caps_prop']) # (B, R, D_H, 1) => (B, R, D_H, K * num_properties)
+        semantic_vecs_tiled = torch.unsqueeze(semantic_vecs, -1).repeat(1, 1, 1, self.config['num_classes'] * self.config['caps_prop']) # (B, R, D_H, 1) => (B, R, D_H, K * num_properties)
         prediction_vecs = torch.sum(semantic_vecs_tiled * self.capsule_weights, dim=2) # (B, R, D_H, K * num_properties) => (B, R, K * num_properties)
-        prediction_vecs_reshaped = torch.reshape(prediction_vecs, [-1, self.config['r'], self.config['train_class_num'], self.config['caps_prop']]) # (B, R, K, num_properties)
+        prediction_vecs_reshaped = torch.reshape(prediction_vecs, [-1, self.config['r'], self.config['num_classes'], self.config['caps_prop']]) # (B, R, K, num_properties)
 
         semantic_vecs_shape = semantic_vecs.shape
-        logits_shape = np.stack([semantic_vecs_shape[0], self.config['r'], self.config['train_class_num']])
+        logits_shape = np.stack([semantic_vecs_shape[0], self.config['r'], self.config['num_classes']])
 
         # v: (B, K, num_properties), b: (B, R, K), c: (B, R, K)
         v, b, c = self.routing(prediction_vecs_reshaped, logits_shape, num_dims=4, is_train=is_train)
@@ -108,7 +110,7 @@ class CapsuleNetwork(nn.Module):
         routes = None
 
         # Iterative routing
-        for i in range(self.config['iter_num']):
+        for i in range(self.config['num_iters']):
             routes = F.softmax(logits, dim=2).to(self.config['device']) # (B, R, K) This is cr in the paper
             vote_vecs_unrolled = routes * prediction_vecs_trans # (num_properties, B, R, K)
             vote_vecs = vote_vecs_unrolled.permute(r_t_shape) # (B, R, K, num_properties)
@@ -124,7 +126,7 @@ class CapsuleNetwork(nn.Module):
             distances = torch.sum(prediction_vecs_reshaped * act_replicated, dim=3) # (B, R, K, num_properties) => (B, R, K)
             logits = logits + distances # (B, R, K)
 
-        return activations[self.config['iter_num']-1], logits, routes
+        return activations[self.config['num_iters']-1], logits, routes
 
     def squash(self, input_tensor):
         # Execute Squash function.

@@ -1,6 +1,8 @@
 from sklearn.metrics import accuracy_score, f1_score
 from torch.utils.data import DataLoader, RandomSampler
 from tqdm import tqdm
+from custom_data import *
+from capsule_nn import *
 
 import torch.optim as optim
 import torch
@@ -9,271 +11,264 @@ import time
 import argparse
 import json
 import random
-import data_process, capsule_nn
+import numpy as np
 
 
-def setting_for_training(ckpt_dir, bert_embedding_frozen):
-    # Load data dict.
-    print("Reading dataset...")
-    data_path = "../data"
+class Manager():
+    def __init__(self, config_path, mode, ckpt_name=None):
+        # Setting config
+        print("Setting the configurations...")
+        with open(config_path, 'r') as f:
+            self.config = json.load(f)
 
-    data = data_process.read_datasets(data_path)
+        if self.config['device'] == "cuda":
+            self.config['device'] = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        elif self.config['device'] == "cpu":
+            self.config['device'] = torch.device('cpu')
+        
+        # Tokenizer setting
+        print("Loading the tokenizer & vocab...")
+        self.tokenizer = get_tokenizer()
+        vocab = self.tokenizer.token2idx
+        self.config['vocab_size'] = len(vocab)
+        self.config['pad_id'] = vocab['[PAD]']
+        self.config['cls_id'] = vocab['[CLS]']
+        self.config['sep_id'] = vocab['[SEP]']
+        self.config['unk_id'] = vocab['[UNK]']
+            
+        if mode == 'train':
+            # Making the ckpt directory
+            if not os.path.exists(self.config['ckpt_dir']):
+                print("Making checkpoint directory...")
+                os.mkdir(self.config['ckpt_dir']) 
+                
+            # Loading data
+            train_set = CustomDataset(f"{self.config['data_dir']}/{self.config['train_name']}.txt", self.tokenizer, self.config)
+            test_set = CustomDataset(f"{self.config['data_dir']}/{self.config['test_name']}.txt", self.tokenizer, self.config)
+        
+            train_class_dict = train_set.class_dict
+            test_class_dict = test_set.class_dict
+            
+            if len(train_class_dict) >= len(test_class_dict):
+                for class_name, class_idx in test_class_dict.items():
+                    assert class_name in train_class_dict and train_class_dict[class_name] == test_class_dict[class_name], \
+                        print("There is unseen class or false index in the test set. Please correct it.")
+            
+            self.config['num_classes'] = len(train_class_dict)
+            
+            train_sampler = RandomSampler(train_set, replacement=True, num_samples=train_set.__len__())
+            self.train_loader = DataLoader(train_set, batch_size=self.config['batch_size'], sampler=train_sampler)
+            self.test_loader = DataLoader(test_set, batch_size=self.config['batch_size'], shuffle=True)
+            
+            # Initialize the model and optimizer.
+            print("Initializing the model...")
+            self.model = CapsuleNetwork(self.config, is_train=True).to(self.config['device'])
+            self.optim = optim.Adam(self.model.parameters(), lr=self.config['learning_rate'])
+            self.best_f1 = 0.0
+            
+            if ckpt_name is not None:
+                assert os.path.exists(f"{self.config['ckpt_dir']}/{ckpt_name}"), f"There is no checkpoint named {ckpt_name}."
 
-    train_class_num = len(data['train_class_dict'])
-    test_class_num = len(data['test_class_dict'])
+                print("Loading checkpoint...")
+                checkpoint = torch.load(f"{self.config['ckpt_dir']}/{ckpt_name}")
+                self.model.load_state_dict(checkpoint['model_state_dict'])
+                self.optim.load_state_dict(checkpoint['optim_state_dict'])
+                self.best_f1 = checkpoint['f1']
+                
+        elif mode == 'inference':
+            assert os.path.exists(f"{self.config['ckpt_dir']}/{ckpt_name}"), f"There is no checkpoint named {ckpt_name}."
+            
+            # Initialized the model
+            print("Initializing the model...")
+            self.model = CapsuleNetwork(self.config, is_train=True).to(self.config['device'])
+            self.model.eval()
+            
+            print("Loading checkpoint...")
+            checkpoint = torch.load(f"{self.config['ckpt_dir']}/{ckpt_name}")
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            
+            # Get intent map & intent text json files.
+            print(f"Loading {self.config['intent_map_name']}.json & {self.config['intent_text_name']}.json...")
+            with open(f"{self.config['data']}/{self.config['intent_map_name']}") as f:
+                self.intent_map = json.load(f)
 
-    # Set basic configs for training.
-    config = {'keep_prob': 0.8,
-              'hidden_size': data['word_emb_size'],
-              'batch_size': 16,
-              'vocab_size': data['vocab_size'],
-              'epoch_num': 20,
-              'seq_len': data['max_len'],
-              'pad_id': data['pad_id'],
-              'train_class_num': train_class_num,
-              'test_class_num': test_class_num,
-              'word_emb_size': data['word_emb_size'],
-              'd_a': 20,
-              'd_m': 256,
-              'caps_prop': 10,
-              'r': 3,
-              'iter_num': 3,
-              'alpha': 0.0001,
-              'learning_rate': 0.0001,
-              'sim_scale': 4,
-              'num_layers': 2,
-              'ckpt_dir': ckpt_dir,
-              'device': torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'),
-              'bert_embedding_frozen': bert_embedding_frozen
-    }
+            with open(f"{self.config['data']}/{self.config['intent_text_name']}") as f:
+                self.intent_text = json.load(f)
+            
+    def train(self):
+        # Total training/testing time.
+        total_train_time = 0.0
+        total_test_time = 0.0
 
-    # Save model config for later usage
-    config_memo = config
-    if torch.cuda.is_available():
-        config_memo['device'] = 'cuda'
-    else:
-        config_memo['device'] = 'cpu'
+        # Training starts.
+        print("Training starts.")
+        best_test_acc = 0.0
+        for epoch in range(1, self.config['num_epochs']+1):
+            print(f"################### Epoch: {epoch} ###################")
 
-    # If the saving directory does not exist, make one.
-    if not os.path.exists(config['ckpt_dir']):
-        print("Making check point directory...")
-        os.mkdir(config['ckpt_dir'])
-    with open(f'{ckpt_dir}/config.json', 'w') as f:
-        json.dump(config, f)
+            self.model.train()
+            train_losses = []
+            y_list = []
+            pred_list = []
 
-    # Initialize dataloaders.
-    train_sampler = RandomSampler(data['train_set'], replacement=True, num_samples=data['train_set'].__len__())
-    train_loader = DataLoader(data['train_set'], batch_size=config['batch_size'], sampler=train_sampler)
-    test_loader = DataLoader(data['test_set'], batch_size=config['batch_size'], shuffle=True)
+            # One batch.
+            start_time = time.time()
+            for batch in tqdm(self.train_loader):
+                batch_x, batch_y, batch_one_hot_label = batch
 
-    return config, train_loader, test_loader
+                attentions, output_logits, prediction_vecs, _ = self.model(batch_x, is_train=True)
+                loss_val = self.model.get_loss(batch_one_hot_label, output_logits, attentions)
 
+                self.optim.zero_grad()
+                loss_val.backward()
 
-def setting_for_smart_reply(ckpt_dir, input_sentence):
-    assert os.path.isfile(f"{ckpt_dir}/best_model.pth"), "There is no trained IntentCapsNet model."
-    assert os.path.isfile(f"{ckpt_dir}/config.json"), "There is no configuration of IntentCapsnet model."
+                self.optim.step()
 
-    # Load model config
-    print("Loading the configuration of trained model...")
-    with open(f'{ckpt_dir}/config.json', 'r') as f:
-        config = json.load(f)
-    if torch.cuda.is_available():
-        config['device'] = torch.device('cuda')
-    else:
-        config['device'] = torch.device('cpu')
+                batch_pred = torch.argmax(output_logits, 1)
+                y_list += batch_y.tolist()
+                pred_list += batch_pred.tolist()
 
-    # Specify the filtering length.
-    len_limit = 20
-    is_pass = True
+                train_losses.append(loss_val.item())
 
-    # Tokenize the sentence.
-    print("Preprocessing the input...")
-    from kobert_transformers import get_tokenizer
-    tokenizer = get_tokenizer()
-    not_padded_x = tokenizer.tokenize('[CLS] ' + input_sentence + ' [SEP]')
-    not_padded_x = tokenizer.convert_tokens_to_ids(not_padded_x)
+            train_time = time.time() - start_time
+            total_train_time += train_time
 
-    if len(not_padded_x) > len_limit:
-        is_pass = False
+            # Calculate accuracy and f1 score of one epoch.
+            acc = accuracy_score(y_list, pred_list)
+            f1 = f1_score(y_list, pred_list, average='weighted')
 
-    # Add paddings.
-    if config['seq_len'] < len(not_padded_x):
-        x = not_padded_x[0:config['seq_len']]
-    else:
-        x = not_padded_x + [config['pad_id']] * (config['seq_len'] - len(not_padded_x))
+            print(f"Train loss: {np.mean(train_losses)}")
+            print(f"Train Acc: {round(acc, 4)} || Train F1: {round(f1, 4)}")
+            print(f"Train time: {round(train_time, 4)}")
 
-    x = torch.LongTensor(x).unsqueeze(0) # (1, L)
+            # Execute evaluation depending on each task.
+            cur_test_acc, cur_test_f1, test_time = self.evaluate()
 
-    return config, x, is_pass
+            # If f1 score has increased, save the model.
+            if cur_test_f1 > self.best_f1:
+                self.best_f1 = cur_test_f1
+                state_dict = {
+                    'model_state_dict': self.model.state_dict(),
+                    'optim_state_dict': self.optim.state_dict(),
+                    'f1': self.best_f1,
+                }
+                torch.save(state_dict, f"{self.config['ckpt_dir']}/best_ckpt.tar")
+                print("************ Best model saved! ************")
 
+            print("------------------------------------------------------")
+            print(f"Best Test F1: {round(self.best_f1, 4)}")
+            print(f"Test Acc: {round(cur_test_acc, 4)} || Test F1: {round(cur_test_f1, 4)}")
+            total_test_time += test_time
+            print("Testing time", round(test_time, 4))
 
-def train(config, train_loader, test_loader):
-    # Total training/testing time.
-    total_train_time = 0.0
-    total_test_time = 0.0
-
-    # Initialize the model and optimizer.
-    model = capsule_nn.CapsuleNetwork(config, is_train=True).to(config['device'])
-    optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])
-
-    # Training starts.
-    print("Training starts.")
-    best_test_acc = 0.0
-    for epoch in range(1, config['epoch_num']+1):
-        model.train()
+        print(f"Overall training time: {total_train_time}")
+        print(f"Overall testing time: {total_test_time}")
+    
+    def evaluate(self):
+        print("Evaluation starts.")
+        self.model.eval()
         y_list = []
         pred_list = []
-        loss_val = None
 
-        # One batch.
-        start_time = time.time()
-        for batch in tqdm(train_loader):
-            batch_x, batch_y, batch_one_hot_label = batch
+        with torch.no_grad():
+            start_time = time.time()
+            for batch in tqdm(self.test_loader):
+                batch_x, batch_y, batch_one_hot_label = batch
 
-            attentions, output_logits, prediction_vecs, _ = model(batch_x, is_train=True)
-            loss_val = model.get_loss(batch_one_hot_label, output_logits, attentions)
+                attentions, output_logits, prediction_vecs, _ = self.model(batch_x, is_train=False)
 
-            optimizer.zero_grad()
-            loss_val.backward()
+                y_list += batch_y.tolist()
+                pred_list += torch.argmax(output_logits, 1).tolist()
 
-            optimizer.step()
+            test_time = time.time() - start_time
+            acc = accuracy_score(y_list, pred_list)
+            f1 = f1_score(y_list, pred_list, average='weighted')
 
-            batch_pred = torch.argmax(output_logits, 1)
-            y_list += batch_y.tolist()
-            pred_list += batch_pred.tolist()
-
-        train_time = time.time() - start_time
-        total_train_time += train_time
-
-        # Calculate accuracy and f1 score of one epoch.
-        acc = accuracy_score(y_list, pred_list)
-        f1 = f1_score(y_list, pred_list, average='weighted')
-
-        print(f"################### Epoch: {epoch} ###################")
-        print(f"Train loss: {loss_val.item()}")
-        print(f"Train Acc: {round(acc, 4)} || Train F1: {round(f1, 4)}")
-        print(f"Train time: {round(train_time, 4)}")
-
-        # Execute evaluation depending on each task.
-        cur_test_acc, cur_test_f1, test_time = evaluate(test_loader, model)
-
-        # If f1 score has increased, save the model.
-        if cur_test_acc > best_test_acc:
-            best_test_acc = cur_test_acc
-            torch.save(model.state_dict(), f"{config['ckpt_dir']}/best_model.pth")
-            print("************ Best model saved! ************")
-
-        print("------------------------------------------------------")
-        print(f"Best Test Acc: {round(best_test_acc, 4)}")
-        print(f"Test Acc: {round(cur_test_acc, 4)} || Current Test F1: {round(cur_test_f1, 4)}")
-        total_test_time += test_time
-        print("Testing time", round(test_time, 4))
-
-    print(f"Overall training time: {total_train_time}")
-    print(f"Overall testing time: {total_test_time}")
+        return acc, f1, test_time
     
-    
-def evaluate(test_loader, model):
-    model.eval()
-    y_list = []
-    pred_list = []
+    def inference(self):
+        print(f"If you end the system, please type '{self.config['end_command']}'.")
+        while True:
+            input_sent = input("Input: ")
+            
+            if input_sent == self.config["end_command"]:
+                print("Good Bye!")
+                break
+            
+            tokens = self.tokenizer.tokenize(input_sent)
 
-    # Evaluation starts.
-    with torch.no_grad():
-        start_time = time.time()
+            if len(tokens) < self.config['len_limit']:
+                print("The input is too short for smart reply.")
+            else:
+                tokens = tokenizer.convert_tokens_to_ids(tokens)
+                tokens  = [self.config['cls_id']] + tokens + [self.config['sep_id']]
 
-        # One batch.
-        for batch in tqdm(test_loader):
-            batch_x, batch_y, batch_one_hot_label = batch
+                if len(tokens) <= self.config['max_len']:
+                    tokens += [self.config['pad_id']] * (self.config['max_len'] - len(tokens))
+                else:
+                    tokens = tokens[:self.config['max_len']]
+                    tokens[-1] = self.config['sep_id']
 
-            attentions, output_logits, prediction_vecs, _ = model(batch_x, is_train=False)
+                x = torch.LongTensor(tokens).unsqueeze(0)  # (1, L)
 
-            y_list += batch_y.tolist()
-            pred_list += torch.argmax(output_logits, 1).tolist()
+                # Extract output intent.
+                print("Working on intent classification...")
+                attentions, output_logits, prediction_vecs, _ = self.model(x, is_train=False)
+                intent = torch.argmax(output_logits, 1).item()
 
-        test_time = time.time() - start_time
-        acc = accuracy_score(y_list, pred_list)
-        f1 = f1_score(y_list, pred_list, average='weighted')
-        
-    return acc, f1, test_time
+                # Get response list.
+                print("Getting candidate smart replies...")
+                response_list = self.get_candidates(intent, num_candidates=self.config['num_candidates'])
 
+                print(response_list)
 
-def test_smart_reply(config, x):
-    # Load model.
-    print("Loading the model...")
-    model = capsule_nn.CapsuleNetwork(config, is_train=False).to(config['device'])
-    model.load_state_dict(torch.load(f"{config['ckpt_dir']}/best_model.pth"))
-    model.eval()
+    def get_candidates(self, intent, num_candidates=3):
+        response_intent_list = self.intent_map[str(intent)]
+        response_dict = {}
+        for intent in response_intent_list:
+            response_dict[intent] = 1
 
-    # Extract output intent.
-    print("Working on intent classification...")
-    attentions, output_logits, prediction_vecs, _ = model(x, is_train=False)
-    intent = torch.argmax(output_logits, 1).item()
+        if len(response_intent_list) >= num_candidates:
+            response_dict = {k: v for i, (k, v) in enumerate(response_dict.items()) if i < num_candidates}
+        else:
+            left = num_candidates - len(response_intent_list)
+            for i in range(left):
+                intent = response_intent_list[i % len(response_intent_list)]
+                response_dict[intent] += 1
 
-    # Get response list.
-    print("Getting candidate smart replies...")
-    response_list = get_candidates(intent, num_candidates=3)
+        response_list = []
+        for intent, num in response_dict.items():
+            text_list = self.intent_text[str(intent)]
+            if num > len(text_list):
+                num = len(text_list)
+            responses = random.sample(text_list, num)
 
-    print(response_list)
+            response_list += responses
 
-
-def get_candidates(intent, num_candidates=3):
-    intent_map_path = '../data/intent_map.json'
-    intent_text_path = '../data/intent_text.json'
-
-    with open(intent_map_path) as f:
-        intent_map = json.load(f)
-
-    with open(intent_text_path) as f:
-        intent_text = json.load(f)
-
-    response_intent_list = intent_map[str(intent)]
-    response_dict = {}
-    for intent in response_intent_list:
-        response_dict[intent] = 1
-
-    if len(response_intent_list) >= num_candidates:
-        response_dict = {k: v for i, (k, v) in enumerate(response_dict.items()) if i < num_candidates}
-    else:
-        left = num_candidates - len(response_intent_list)
-        for i in range(left):
-            intent = response_intent_list[i % len(response_intent_list)]
-            response_dict[intent] += 1
-
-    response_list = []
-    for intent, num in response_dict.items():
-        text_list = intent_text[str(intent)]
-        if num > len(text_list):
-            num = len(text_list)
-        responses = random.sample(text_list, num)
-
-        response_list += responses
-
-    return response_list
+        return response_list
 
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description="Argument parser for various parameters.")
+    parser.add_argument('--config_path', required=True, help="The path to configuration file.")
     parser.add_argument('--mode', type=str, required=True, help="Training model or testing smart reply?")
-    parser.add_argument('--bert_embedding_frozen', type=bool, default=False, help="Do you want to freeze BERT's embedding layer or not?")
-    parser.add_argument('--input', type=str, default=False, help="Actual input sentence when using smart reply system.")
+    parser.add_argument('--ckpt_name', required=False, help="Best checkpoint file.")
 
     args = parser.parse_args()
 
-    assert args.mode == 'train_model' or args.mode == 'test_smart_reply', "Please specify correct mode."
-
-    ckpt_dir = "../saved_model"
-
-    if args.mode == 'train_model':
-        config, train_loader, test_loader = setting_for_training(ckpt_dir, args.bert_embedding_frozen)
-        train(config, train_loader, test_loader)
-    elif args.mode == 'test_smart_reply':
-        assert args.input is not None, "Please type the input sentence for smart replying system."
-
-        config, x, is_pass = setting_for_smart_reply(ckpt_dir, args.input)
-
-        if is_pass:
-            test_smart_reply(config, x)
+    assert args.mode == 'train' or args.mode == 'inference', "Please specify correct mode."
+    
+    if args.mode == 'train':
+        if args.ckpt_name is not None:
+            manager = Manager(args.config_path, args.mode, ckpt_name=args.ckpt_name)
         else:
-            print("No need to conduct Smart Reply.")
-
+            manager = Manager(args.config_path, args.mode)
+              
+        manager.train()
+        
+    elif args.mode == 'inference':
+        assert args.ckpt_name is not None, "Please specify the trained model checkpoint."
+        
+        manager = Manager(args.config_path, args.mode, ckpt_name=args.ckpt_name)
+        
+        manager.inference()
