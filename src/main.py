@@ -49,12 +49,15 @@ class Manager():
             train_class_dict = train_set.class_dict
             test_class_dict = test_set.class_dict
             
+            # Checking class labels
             if len(train_class_dict) >= len(test_class_dict):
                 for class_name, class_idx in test_class_dict.items():
                     assert class_name in train_class_dict and train_class_dict[class_name] == test_class_dict[class_name], \
                         print("There is unseen class or false index in the test set. Please correct it.")
             
-            self.config['num_classes'] = len(train_class_dict)
+            for class_name, class_idx in train_class_dict.items():
+                assert class_idx in range(self.config['num_classes']), \
+                    print("There is a class index out of range. Please check.")
             
             train_sampler = RandomSampler(train_set, replacement=True, num_samples=train_set.__len__())
             self.train_loader = DataLoader(train_set, batch_size=self.config['batch_size'], sampler=train_sampler)
@@ -89,10 +92,10 @@ class Manager():
             
             # Get intent map & intent text json files.
             print(f"Loading {self.config['intent_map_name']}.json & {self.config['intent_text_name']}.json...")
-            with open(f"{self.config['data']}/{self.config['intent_map_name']}") as f:
+            with open(f"{self.config['data_dir']}/{self.config['intent_map_name']}.json") as f:
                 self.intent_map = json.load(f)
 
-            with open(f"{self.config['data']}/{self.config['intent_text_name']}") as f:
+            with open(f"{self.config['data_dir']}/{self.config['intent_text_name']}.json") as f:
                 self.intent_text = json.load(f)
             
     def train(self):
@@ -200,7 +203,7 @@ class Manager():
             if len(tokens) < self.config['len_limit']:
                 print("The input is too short for smart reply.")
             else:
-                tokens = tokenizer.convert_tokens_to_ids(tokens)
+                tokens = self.tokenizer.convert_tokens_to_ids(tokens)
                 tokens  = [self.config['cls_id']] + tokens + [self.config['sep_id']]
 
                 if len(tokens) <= self.config['max_len']:
