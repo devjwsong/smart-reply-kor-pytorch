@@ -30,7 +30,7 @@ class CapsuleNetwork(nn.Module):
             for p in self.encoder.embeddings.parameters():
                 p.requires_grad = False
 
-        self.drop = nn.Dropout(config['dropout'])
+        self.drop = nn.Dropout(self.config['dropout'])
 
         # Parameters for self attention.
         self.ws1 = nn.Linear(hidden_size, self.config['d_a'], bias=False)
