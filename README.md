@@ -17,19 +17,19 @@ The IntentCapsNet used is the implementation of the repository *intent-capsnet-k
 
 This Smart Reply system is based on multinomial classification, consisting of 3 main parts.
 
-1. <u>Intent Classification</u>
+1. **Intent Classification**
 
    The IntentCapsNet detects the sender's intent by processing the input message.
 
    The sender's intent is called "question" intent for convenience.
 
-2. <u>Intent Mapping</u>
+2. **Intent Mapping**
 
    This defines the relation between each question intent and according "response" intent sets.
 
    In other words, there are fixed links between question intent and its corresponding response intents.
 
-3. <u>Intent Group</u>
+3. **Intent Group**
 
    This file has candidate responses grouped by each response intent group.
 
